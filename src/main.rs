@@ -26,10 +26,12 @@ impl Plugin for ExploreIrPlugin {
 }
 
 #[derive(Deserialize)]
+#[allow(unused)]
 struct ViewIrOutput {
     block_id: BlockId,
     span: Span,
     ir_block: IrBlock,
+    formatted_instructions: Vec<String>,
 }
 
 pub struct ExploreIr;
