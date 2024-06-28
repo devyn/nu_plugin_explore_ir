@@ -124,7 +124,7 @@ fn ui(frame: &mut Frame, state: &mut State) {
         let unstyled_final_lines = final_part.split("\n").skip(1).map(Line::raw);
 
         // The unstyled part of the last initial line and the first final line
-        let unstyled_part_of_last_initial_line = initial.split("\n").skip(1).last().map(Span::raw);
+        let unstyled_part_of_last_initial_line = initial.split("\n").last().map(Span::raw);
         let unstyled_part_of_first_final_line = final_part.split("\n").next().map(Span::raw);
 
         // Now, the highlighted part
