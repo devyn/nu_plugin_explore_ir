@@ -1,5 +1,9 @@
 # nu_plugin_explore_ir
 
+> [!IMPORTANT]
+> This is a work in progress. You need [my IR branch](https://github.com/nushell/nushell/tree/ir) of Nushell for this to work.  
+> The IR is under development and will likely change substantially before it's merged.
+
 This is a fancy viewer for `view ir --json`. Example:
 
 ```nushell
