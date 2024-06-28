@@ -20,6 +20,7 @@ struct State<'a> {
     view_ir_output: &'a ViewIrOutput,
     block_contents: &'a str,
     inst_list_state: ListState,
+    inst_list: List<'a>,
     should_quit: bool,
 }
 
@@ -33,6 +34,7 @@ pub(crate) fn start(view_ir_output: &ViewIrOutput, block_contents: &str) -> io::
         view_ir_output,
         block_contents,
         inst_list_state: ListState::default(),
+        inst_list: make_instruction_list(view_ir_output),
         should_quit: false,
     };
 
@@ -74,6 +76,20 @@ fn handle_keypress(state: &mut State, key_event: KeyEvent) {
     }
 }
 
+fn make_instruction_list(view_ir_output: &ViewIrOutput) -> List {
+    view_ir_output
+        .formatted_instructions
+        .iter()
+        .enumerate()
+        .map(|(index, inst)| {
+            Line::from_iter([
+                Span::styled(format!("{index:4}: "), Style::new().dim()),
+                Span::raw(inst),
+            ])
+        })
+        .collect()
+}
+
 fn ui(frame: &mut Frame, state: &mut State) {
     let layout = Layout::new(
         Direction::Horizontal,
@@ -84,17 +100,8 @@ fn ui(frame: &mut Frame, state: &mut State) {
     // Instruction list
     frame.render_stateful_widget(
         state
-            .view_ir_output
-            .formatted_instructions
-            .iter()
-            .enumerate()
-            .map(|(index, inst)| {
-                Line::from_iter([
-                    Span::styled(format!("{index:4}: "), Style::new().dim()),
-                    Span::raw(inst),
-                ])
-            })
-            .collect::<List>()
+            .inst_list
+            .clone()
             .block(Block::bordered().title("IR instructions"))
             .highlight_style(Style::new().reversed()),
         layout[0],
