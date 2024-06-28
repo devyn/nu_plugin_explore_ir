@@ -1,22 +1,26 @@
 # nu_plugin_explore_ir
 
-This is a [Nushell](https://nushell.sh/) plugin called "explore_ir".
-
-## Installing
+This is a fancy viewer for `view ir --json`. Example:
 
 ```nushell
-> cargo install --path .
+view ir --json {
+  if ($env.HELLO | is-not-empty) {
+    "Hello, " ++ $env.HELLO ++ "!"
+  } else {
+    "Goodbye, " ++ (random uuid) ++ "!"
+  }
+} | explore ir
 ```
 
-## Usage
+![An example of what the UI looks like for the above code](doc/example.png)
 
-FIXME: This reflects the demo functionality generated with the template. Update this documentation
-once you have implemented the actual plugin functionality.
+Key bindings:
 
-```nushell
-> register ~/.cargo/bin/nu_plugin_explore_ir
-> explore ir Ellie
-Hello, Ellie. How are you today?
-> explore ir --shout Ellie
-HELLO, ELLIE. HOW ARE YOU TODAY?
-```
+| Key            | Effect                                                          |
+| -------------- | --------------------------------------------------------------- |
+| **q**          | Quit the application.                                           |
+| **g**          | Go to a specific instruction by index.                          |
+| **SPACE**      | Open the inspector, which shows debug info for the instruction. |
+| **↑** or **k** | Go to the previous instruction.                                 |
+| **↓** or **j** | Go to the next instruction.                                     |
+| **ESC**        | Close a dialog box or prompt.                                   |
