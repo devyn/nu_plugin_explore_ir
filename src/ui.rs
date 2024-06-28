@@ -87,7 +87,13 @@ fn ui(frame: &mut Frame, state: &mut State) {
             .view_ir_output
             .formatted_instructions
             .iter()
-            .map(|inst| Text::styled(inst, Style::default()))
+            .enumerate()
+            .map(|(index, inst)| {
+                Line::from_iter([
+                    Span::styled(format!("{index:4}: "), Style::new().dim()),
+                    Span::raw(inst),
+                ])
+            })
             .collect::<List>()
             .block(Block::bordered().title("IR instructions"))
             .highlight_style(Style::new().reversed()),
