@@ -23,8 +23,8 @@ Key bindings:
 | Key            | Effect                                                          |
 | -------------- | --------------------------------------------------------------- |
 | **q**          | Quit the application.                                           |
-| **g**          | Go to a specific instruction by index.                          |
 | **SPACE**      | Open the inspector, which shows debug info for the instruction. |
+| **g**          | Go to a specific instruction by index.                          |
 | **↑** or **k** | Go to the previous instruction.                                 |
 | **↓** or **j** | Go to the next instruction.                                     |
 | **ESC**        | Close a dialog box or prompt.                                   |
