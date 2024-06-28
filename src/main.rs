@@ -1,6 +1,12 @@
-use nu_plugin::{MsgPackSerializer, Plugin, PluginCommand, serve_plugin};
+use nu_plugin::{serve_plugin, MsgPackSerializer, Plugin, PluginCommand};
 use nu_plugin::{EngineInterface, EvaluatedCall, SimplePluginCommand};
-use nu_protocol::{Category, Example, LabeledError, Signature, SyntaxShape, Value};
+use nu_protocol::ir::IrBlock;
+use nu_protocol::{
+    BlockId, Category, Example, IntoSpanned, LabeledError, ShellError, Signature, Span, Type, Value,
+};
+use serde::Deserialize;
+
+mod ui;
 
 pub struct ExploreIrPlugin;
 
@@ -19,6 +25,13 @@ impl Plugin for ExploreIrPlugin {
     }
 }
 
+#[derive(Deserialize)]
+struct ViewIrOutput {
+    block_id: BlockId,
+    span: Span,
+    ir_block: IrBlock,
+}
+
 pub struct ExploreIr;
 
 impl SimplePluginCommand for ExploreIr {
@@ -30,56 +43,55 @@ impl SimplePluginCommand for ExploreIr {
 
     fn signature(&self) -> Signature {
         Signature::build(PluginCommand::name(self))
-            .required("name", SyntaxShape::String, "(FIXME) A demo parameter - your name")
-            .switch("shout", "(FIXME) Yell it instead", None)
-            .category(Category::Experimental)
+            .input_output_type(Type::String, Type::Nothing)
+            .category(Category::Viewers)
     }
 
     fn usage(&self) -> &str {
-        "(FIXME) help text for explore ir"
+        "Explore the output of `view ir --json` in a TUI"
     }
 
     fn examples(&self) -> Vec<Example> {
-        vec![
-            Example {
-                example: "explore ir Ellie",
-                description: "Say hello to Ellie",
-                result: Some(Value::test_string("Hello, Ellie. How are you today?")),
-            },
-            Example {
-                example: "explore ir --shout Ellie",
-                description: "Shout hello to Ellie",
-                result: Some(Value::test_string("HELLO, ELLIE. HOW ARE YOU TODAY?")),
-            },
-        ]
+        vec![Example {
+            example: "view ir --json { 1 + 2 } | explore ir",
+            description: "Open a terminal viewer for the IR of the { 1 + 2 } block",
+            result: None,
+        }]
     }
 
     fn run(
         &self,
         _plugin: &ExploreIrPlugin,
-        _engine: &EngineInterface,
+        engine: &EngineInterface,
         call: &EvaluatedCall,
-        _input: &Value,
+        input: &Value,
     ) -> Result<Value, LabeledError> {
-        let name: String = call.req(0)?;
-        let mut greeting = format!("Hello, {name}. How are you today?");
-        if call.has_flag("shout")? {
-            greeting = greeting.to_uppercase();
+        let json = input.as_str()?;
+
+        let view_ir_output: ViewIrOutput = serde_json::from_str(json).map_err(|err| {
+            LabeledError::new("Failed to parse output of `view ir`")
+                .with_label(err.to_string(), input.span())
+        })?;
+
+        let block_contents =
+            String::from_utf8_lossy(&engine.get_span_contents(view_ir_output.span)?).into_owned();
+
+        if engine.is_using_stdio() {
+            return Err(
+                LabeledError::new("Plugin can't run under stdio mode").with_label(
+                    "check that local socket mode is possible before running this command",
+                    call.head,
+                ),
+            );
         }
-        Ok(Value::string(greeting, call.head))
+
+        let foreground = engine.enter_foreground()?;
+        ui::start(&view_ir_output, &block_contents)
+            .map_err(|err| ShellError::from(err.into_spanned(call.head)))?;
+        drop(foreground);
+
+        Ok(Value::nothing(call.head))
     }
-}
-
-#[test]
-fn test_examples() -> Result<(), nu_protocol::ShellError> {
-    use nu_plugin_test_support::PluginTest;
-
-    // This will automatically run the examples specified in your command and compare their actual
-    // output against what was specified in the example. You can remove this test if the examples
-    // can't be tested this way, but we recommend including it if possible.
-
-    PluginTest::new("explore_ir", ExploreIrPlugin.into())?
-        .test_command_examples(&ExploreIr)
 }
 
 fn main() {

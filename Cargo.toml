@@ -11,11 +11,15 @@ license = "MIT"
 
 [dependencies]
 # for local development, you can use a path dependency
-# nu-plugin = { path = "../nushell/crates/nu-plugin" }
-# nu-protocol = { path = "../nushell/crates/nu-protocol", features = ["plugin"] }
-nu-plugin = "0.95.0"
-nu-protocol = { version = "0.95.0", features = ["plugin"] }
+nu-plugin = { path = "../nushell/crates/nu-plugin" }
+nu-protocol = { path = "../nushell/crates/nu-protocol", features = ["plugin"] }
+# nu-plugin = "0.95.0"
+# nu-protocol = { version = "0.95.0", features = ["plugin"] }
+
+ratatui = "0.27.0"
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.118"
 
 [dev-dependencies]
-# nu-plugin-test-support = { path = "../nushell/crates/nu-plugin-test-support" }
-nu-plugin-test-support = { version = "0.95.0" }
+nu-plugin-test-support = { path = "../nushell/crates/nu-plugin-test-support" }
+# nu-plugin-test-support = { version = "0.95.0" }
