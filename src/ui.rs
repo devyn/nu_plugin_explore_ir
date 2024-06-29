@@ -1,6 +1,5 @@
 use std::{
     io::{self, stdout},
-    iter::once,
     time::Duration,
 };
 
@@ -148,109 +147,8 @@ fn ui(frame: &mut Frame, state: &mut State) {
     )
     .split(main_layout[0]);
 
-    // Instruction list
-    frame.render_stateful_widget(
-        state
-            .inst_list
-            .clone()
-            .block(Block::bordered().title(Span::styled("IR instructions", Style::new().bold())))
-            .highlight_style(Style::new().reversed()),
-        layout[0],
-        &mut state.inst_list_state,
-    );
-
-    // Highlight the span of the selected instruction
-    let block_span = state.view_ir_output.span;
-    let highlighted_span = state
-        .inst_list_state
-        .selected()
-        .and_then(|index| state.view_ir_output.ir_block.spans.get(index).cloned())
-        .unwrap_or(nu_protocol::Span::unknown());
-
-    let source_code_title = Span::styled("Source code", Style::new().bold());
-
-    if highlighted_span.start >= block_span.start && highlighted_span.end <= block_span.end {
-        let start = highlighted_span.start - block_span.start;
-        let end = highlighted_span.end - block_span.start;
-        let (initial, next) = state.block_contents.split_at(start);
-        let (highlighted, final_part) = next.split_at(end - start);
-
-        // First, the initial and final lines with no highlight
-        let initial_line_count = initial.split("\n").count();
-        let unstyled_initial_lines = initial
-            .split("\n")
-            .take(initial_line_count.saturating_sub(1))
-            .map(Line::raw);
-        let unstyled_final_lines = final_part.split("\n").skip(1).map(Line::raw);
-
-        // The unstyled part of the last initial line and the first final line
-        let unstyled_part_of_last_initial_line = initial.split("\n").last().map(Span::raw);
-        let unstyled_part_of_first_final_line = final_part.split("\n").next().map(Span::raw);
-
-        // Now, the highlighted part
-        let style = Style::new().blue().reversed().bold();
-        let styled_part_of_initial_line = highlighted
-            .split("\n")
-            .next()
-            .map(|s| Span::styled(s, style));
-        let styled_part_of_final_line = highlighted
-            .split("\n")
-            .skip(1)
-            .last()
-            .map(|s| Span::styled(s, style));
-        let styled_line_count = highlighted.split("\n").count();
-        let styled_middle_lines = highlighted
-            .split("\n")
-            .skip(1)
-            .take(styled_line_count.saturating_sub(2))
-            .map(|s| Line::styled(s, style));
-
-        // Put it all together:
-        let lines = if styled_line_count == 1 {
-            Text::from_iter(
-                unstyled_initial_lines
-                    .chain(once(Line::from_iter(
-                        [
-                            unstyled_part_of_last_initial_line,
-                            styled_part_of_initial_line,
-                            styled_part_of_final_line,
-                            unstyled_part_of_first_final_line,
-                        ]
-                        .into_iter()
-                        .flatten(),
-                    )))
-                    .chain(unstyled_final_lines),
-            )
-        } else {
-            Text::from_iter(
-                unstyled_initial_lines
-                    .chain(once(Line::from_iter(
-                        [
-                            unstyled_part_of_last_initial_line,
-                            styled_part_of_initial_line,
-                        ]
-                        .into_iter()
-                        .flatten(),
-                    )))
-                    .chain(styled_middle_lines)
-                    .chain(once(Line::from_iter(
-                        [styled_part_of_final_line, unstyled_part_of_first_final_line]
-                            .into_iter()
-                            .flatten(),
-                    )))
-                    .chain(unstyled_final_lines),
-            )
-        };
-        frame.render_widget(
-            Paragraph::new(lines).block(Block::bordered().title(source_code_title)),
-            layout[1],
-        );
-    } else {
-        frame.render_widget(
-            Paragraph::new(state.block_contents).block(Block::bordered().title(source_code_title)),
-            layout[1],
-        );
-    }
+    instructions_ui(frame, state, layout[0]);
+    source_code_ui(frame, state, layout[1]);
 
     if state.show_inspector {
         inspector_ui(frame, state);
@@ -298,6 +196,84 @@ fn statusbar_ui(frame: &mut Frame, state: &mut State, area: Rect) {
             area,
         );
     }
+}
+
+fn instructions_ui(frame: &mut Frame, state: &mut State, area: Rect) {
+    frame.render_stateful_widget(
+        state
+            .inst_list
+            .clone()
+            .block(Block::bordered().title(Span::styled("IR instructions", Style::new().bold())))
+            .highlight_style(Style::new().reversed()),
+        area,
+        &mut state.inst_list_state,
+    );
+}
+
+fn source_code_ui(frame: &mut Frame, state: &mut State, area: Rect) {
+    // Highlight the span of the selected instruction
+    let block_span = state.view_ir_output.span;
+    let highlighted_span = state
+        .inst_list_state
+        .selected()
+        .and_then(|index| state.view_ir_output.ir_block.spans.get(index).cloned())
+        .unwrap_or(nu_protocol::Span::unknown());
+
+    let source_code_title = Span::styled("Source code", Style::new().bold());
+
+    let mut text = Text::default();
+
+    if highlighted_span.start >= block_span.start && highlighted_span.end <= block_span.end {
+        let start = highlighted_span.start - block_span.start;
+        let end = highlighted_span.end - block_span.start;
+        let (initial, next) = state.block_contents.split_at(start);
+        let (highlighted, final_part) = next.split_at(end - start);
+
+        // First, push the initial lines that have no style
+        let initial_line_count = initial.lines().count();
+        text.extend(
+            initial
+                .lines()
+                .take(initial_line_count.saturating_sub(1))
+                .map(Line::raw),
+        );
+
+        // The unstyled part of the last initial line
+        if let Some(unstyled_part_of_last_initial_line) = initial.lines().last() {
+            text.push_line(unstyled_part_of_last_initial_line);
+        }
+
+        // Now, the highlighted part
+        let style = Style::new().blue().reversed().bold();
+        let styled_line_count = highlighted.lines().count();
+        let mut lines = highlighted.lines();
+        if let Some(highlighted_part_of_last_initial_line) = lines.next() {
+            text.push_span(Span::styled(highlighted_part_of_last_initial_line, style));
+        }
+        text.extend(
+            (&mut lines)
+                .take(styled_line_count.saturating_sub(2))
+                .map(|line| Line::styled(line, style)),
+        );
+        if let Some(highlighted_part_of_first_final_line) = lines.next() {
+            text.push_line(Span::styled(highlighted_part_of_first_final_line, style));
+        }
+
+        // The unstyled part of the first final line
+        if let Some(unstyled_part_of_first_final_line) = final_part.lines().next() {
+            text.push_span(unstyled_part_of_first_final_line);
+        }
+
+        // Finally, push the final lines that have no style.
+        text.extend(final_part.lines().skip(1).map(Line::raw));
+    } else {
+        text = Text::raw(state.block_contents);
+    }
+
+    frame.render_widget(
+        Paragraph::new(text).block(Block::bordered().title(source_code_title)),
+        area,
+    );
 }
 
 fn inspector_ui(frame: &mut Frame, state: &mut State) {
