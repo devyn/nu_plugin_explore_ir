@@ -59,7 +59,7 @@ pub(crate) fn start(view_ir_output: &ViewIrOutput, block_contents: &str) -> io::
 }
 
 fn handle_events(state: &mut State) -> io::Result<()> {
-    if event::poll(Duration::from_millis(50))? {
+    if event::poll(Duration::from_secs(1))? {
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
                 handle_keypress(state, key);
