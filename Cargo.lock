@@ -1023,6 +1023,7 @@ dependencies = [
  "convert_case",
  "fancy-regex",
  "indexmap",
+ "log",
  "lru",
  "miette",
  "nix",
