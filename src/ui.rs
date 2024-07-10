@@ -123,9 +123,15 @@ fn make_instruction_list(view_ir_output: &ViewIrOutput) -> List {
         .iter()
         .enumerate()
         .map(|(index, inst)| {
+            let comment = &view_ir_output.ir_block.comments[index];
             Line::from_iter([
                 Span::styled(format!("{index:4}: "), Style::new().dim()),
-                Span::raw(inst),
+                Span::raw(format!("{inst:40}")),
+                if !comment.is_empty() {
+                    Span::styled(format!(" # {comment}"), Style::new().dim().italic())
+                } else {
+                    Span::raw("")
+                },
             ])
         })
         .collect()
