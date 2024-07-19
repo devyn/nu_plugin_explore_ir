@@ -1,11 +1,10 @@
 use nu_plugin::{serve_plugin, MsgPackSerializer, Plugin, PluginCommand};
 use nu_plugin::{EngineInterface, EvaluatedCall, SimplePluginCommand};
-use nu_protocol::ir::IrBlock;
 use nu_protocol::{
-    BlockId, Category, Example, IntoSpanned, LabeledError, ShellError, Signature, Span, Type, Value,
+    Category, Example, IntoSpanned, LabeledError, ShellError, Signature, SyntaxShape, Value,
 };
-use serde::Deserialize;
 
+mod data;
 mod ui;
 
 pub struct ExploreIrPlugin;
@@ -25,15 +24,6 @@ impl Plugin for ExploreIrPlugin {
     }
 }
 
-#[derive(Deserialize)]
-#[allow(unused)]
-struct ViewIrOutput {
-    block_id: BlockId,
-    span: Span,
-    ir_block: IrBlock,
-    formatted_instructions: Vec<String>,
-}
-
 pub struct ExploreIr;
 
 impl SimplePluginCommand for ExploreIr {
@@ -45,20 +35,40 @@ impl SimplePluginCommand for ExploreIr {
 
     fn signature(&self) -> Signature {
         Signature::build(PluginCommand::name(self))
-            .input_output_type(Type::String, Type::Nothing)
+            .required(
+                "target",
+                SyntaxShape::Any,
+                "The name or block to explore compiled code for.",
+            )
+            .switch(
+                "decl-id",
+                "Integer is a declaration ID rather than a block ID.",
+                Some('d'),
+            )
             .category(Category::Viewers)
     }
 
     fn usage(&self) -> &str {
-        "Explore the output of `view ir --json` in a TUI"
+        "Explore the IR of a block or definition."
+    }
+
+    fn extra_usage(&self) -> &str {
+        "Accepts valid arguments for `view ir`. For more information, see `view ir --help`."
     }
 
     fn examples(&self) -> Vec<Example> {
-        vec![Example {
-            example: "view ir --json { 1 + 2 } | explore ir",
-            description: "Open a terminal viewer for the IR of the { 1 + 2 } block",
-            result: None,
-        }]
+        vec![
+            Example {
+                example: "explore ir { 1 + 2 }",
+                description: "Open a terminal viewer for the IR of the { 1 + 2 } block.",
+                result: None,
+            },
+            Example {
+                example: "explore ir 'std bench'",
+                description: "Explore IR for the 'std bench' command. Only works for custom commands (written in Nushell).",
+                result: None,
+            },
+        ]
     }
 
     fn run(
@@ -66,17 +76,12 @@ impl SimplePluginCommand for ExploreIr {
         _plugin: &ExploreIrPlugin,
         engine: &EngineInterface,
         call: &EvaluatedCall,
-        input: &Value,
+        _input: &Value,
     ) -> Result<Value, LabeledError> {
-        let json = input.as_str()?;
+        let target = call.req(0)?;
+        let is_decl_id = call.has_flag("decl-id")?;
 
-        let view_ir_output: ViewIrOutput = serde_json::from_str(json).map_err(|err| {
-            LabeledError::new("Failed to parse output of `view ir`")
-                .with_label(err.to_string(), input.span())
-        })?;
-
-        let block_contents =
-            String::from_utf8_lossy(&engine.get_span_contents(view_ir_output.span)?).into_owned();
+        let initial_block = data::get(engine, target, is_decl_id, call.head)?;
 
         if engine.is_using_stdio() {
             return Err(
@@ -88,7 +93,7 @@ impl SimplePluginCommand for ExploreIr {
         }
 
         let foreground = engine.enter_foreground()?;
-        ui::start(&view_ir_output, &block_contents)
+        ui::start(engine.clone(), call.head, initial_block)
             .map_err(|err| ShellError::from(err.into_spanned(call.head)))?;
         drop(foreground);
 

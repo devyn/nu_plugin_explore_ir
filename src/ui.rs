@@ -3,6 +3,11 @@ use std::{
     time::Duration,
 };
 
+use nu_plugin::EngineInterface;
+use nu_protocol::{
+    ir::{Instruction, Literal},
+    Value,
+};
 use ratatui::{
     crossterm::{
         event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
@@ -13,13 +18,14 @@ use ratatui::{
     widgets::*,
 };
 
-use crate::ViewIrOutput;
+use crate::data::{self, BlockState, ViewIrOutput};
 
-struct State<'a> {
-    view_ir_output: &'a ViewIrOutput,
-    block_contents: &'a str,
-    inst_list_state: ListState,
-    inst_list: List<'a>,
+struct State {
+    engine: EngineInterface,
+    head: nu_protocol::Span,
+    blocks: Vec<BlockState>,
+    inst_list: List<'static>,
+    jump_list: Vec<JumpState>,
     should_quit: bool,
     show_inspector: bool,
     goto: bool,
@@ -27,17 +33,45 @@ struct State<'a> {
     error: Option<String>,
 }
 
-pub(crate) fn start(view_ir_output: &ViewIrOutput, block_contents: &str) -> io::Result<()> {
+impl State {
+    fn current_block(&self) -> &BlockState {
+        self.blocks.last().expect("State.blocks is empty!")
+    }
+
+    fn current_block_mut(&mut self) -> &mut BlockState {
+        self.blocks.last_mut().expect("State.blocks is empty!")
+    }
+
+    fn list_state(&self) -> &ListState {
+        &self.current_block().list_state
+    }
+
+    fn list_state_mut(&mut self) -> &mut ListState {
+        &mut self.current_block_mut().list_state
+    }
+}
+
+enum JumpState {
+    IntoBlock,
+    Goto { previous: usize },
+}
+
+pub(crate) fn start(
+    engine: EngineInterface,
+    head: nu_protocol::Span,
+    initial_block: BlockState,
+) -> io::Result<()> {
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     let mut result = Ok(());
     let mut state = State {
-        view_ir_output,
-        block_contents,
-        inst_list_state: ListState::default(),
-        inst_list: make_instruction_list(view_ir_output),
+        engine,
+        head,
+        blocks: vec![],
+        inst_list: List::default(),
+        jump_list: vec![],
         should_quit: false,
         show_inspector: false,
         goto: false,
@@ -45,7 +79,9 @@ pub(crate) fn start(view_ir_output: &ViewIrOutput, block_contents: &str) -> io::
         error: None,
     };
 
-    state.inst_list_state.select_first();
+    enter_block(&mut state, initial_block);
+
+    state.list_state_mut().select_first();
 
     while !state.should_quit {
         result = result.and(terminal.draw(|frame| ui(frame, &mut state)).map(|_| ()));
@@ -55,6 +91,105 @@ pub(crate) fn start(view_ir_output: &ViewIrOutput, block_contents: &str) -> io::
     disable_raw_mode()
         .and(stdout().execute(LeaveAlternateScreen))
         .and(result)
+}
+
+fn enter_block(state: &mut State, block: BlockState) {
+    state.blocks.push(block);
+    restore_block_state(state);
+}
+
+fn restore_block_state(state: &mut State) {
+    if let Some(block) = state.blocks.last() {
+        state.inst_list = make_instruction_list(&block.view_ir);
+    } else {
+        state.inst_list = List::default();
+    }
+}
+
+fn go_forward(state: &mut State) {
+    if let Err(err) = (|| {
+        let Some(block) = state.blocks.last_mut() else {
+            return Err("not in a block".into());
+        };
+
+        let Some(index) = block.list_state.selected() else {
+            return Err("nothing is selected".into());
+        };
+
+        let Some(instruction) = block.view_ir.ir_block.instructions.get(index) else {
+            return Err("can't find selected instruction".into());
+        };
+
+        match instruction {
+            Instruction::Call { decl_id, .. } => {
+                let new_block = data::get(
+                    &state.engine,
+                    Value::int(
+                        i64::try_from(*decl_id).map_err(|err| err.to_string())?,
+                        state.head,
+                    ),
+                    true,
+                    state.head,
+                )
+                .map_err(|err| err.to_string())?;
+                state.jump_list.push(JumpState::IntoBlock);
+                enter_block(state, new_block);
+                Ok(())
+            }
+            Instruction::LoadLiteral {
+                lit:
+                    Literal::Block(block_id)
+                    | Literal::Closure(block_id)
+                    | Literal::RowCondition(block_id),
+                ..
+            } => {
+                // Jump into a literal block/closure/row condition
+                let new_block = data::get(
+                    &state.engine,
+                    Value::int(
+                        i64::try_from(*block_id).map_err(|err| err.to_string())?,
+                        state.head,
+                    ),
+                    false,
+                    state.head,
+                )
+                .map_err(|err| err.to_string())?;
+                state.jump_list.push(JumpState::IntoBlock);
+                enter_block(state, new_block);
+                Ok(())
+            }
+            _ => {
+                if let Some(branch_target) = instruction.branch_target() {
+                    state.jump_list.push(JumpState::Goto { previous: index });
+                    block.list_state.select(Some(branch_target));
+                    Ok(())
+                } else {
+                    Err("nothing to jump to".into())
+                }
+            }
+        }
+    })() {
+        state.error = Some(err);
+    }
+}
+
+fn go_back(state: &mut State) {
+    match state.jump_list.pop() {
+        Some(JumpState::IntoBlock) => {
+            if state.blocks.len() > 1 {
+                state.blocks.pop();
+                restore_block_state(state);
+            } else {
+                state.error = Some("unable to jump to the previous block".into());
+            }
+        }
+        Some(JumpState::Goto { previous }) => {
+            state.current_block_mut().list_state.select(Some(previous));
+        }
+        None => {
+            state.error = Some("can't go back any further".into());
+        }
+    }
 }
 
 fn handle_events(state: &mut State) -> io::Result<()> {
@@ -84,7 +219,11 @@ fn handle_keypress(state: &mut State, key_event: KeyEvent) {
                 Ok(index) => {
                     if index < state.inst_list.len() {
                         state.goto_contents.clear();
-                        state.inst_list_state.select(Some(index));
+                        // Save so you can jump back with [
+                        if let Some(previous) = state.list_state().selected() {
+                            state.jump_list.push(JumpState::Goto { previous });
+                        }
+                        state.list_state_mut().select(Some(index));
                     } else {
                         state.error = Some("index out of range".into());
                     }
@@ -108,25 +247,58 @@ fn handle_keypress(state: &mut State, key_event: KeyEvent) {
             state.goto = false;
         }
         KeyCode::Up | KeyCode::Char('k') => {
-            state.inst_list_state.select_previous();
+            state.list_state_mut().select_previous();
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            state.inst_list_state.select_next();
+            state.list_state_mut().select_next();
+        }
+        KeyCode::Char('[') => {
+            go_back(state);
+        }
+        KeyCode::Char(']') => {
+            go_forward(state);
         }
         _ => (),
     }
 }
 
-fn make_instruction_list(view_ir_output: &ViewIrOutput) -> List {
+fn instruction_style(instruction: &Instruction) -> Style {
+    match instruction {
+        Instruction::Call { .. } => Style::new().light_cyan(),
+        Instruction::LoadLiteral {
+            lit: Literal::Block(_) | Literal::Closure(_) | Literal::RowCondition(_),
+            ..
+        } => Style::new().light_cyan(),
+        _ if instruction.branch_target().is_some() => Style::new().light_green(),
+        _ => Style::new(),
+    }
+}
+
+fn make_instruction_list(view_ir_output: &ViewIrOutput) -> List<'static> {
     view_ir_output
         .formatted_instructions
         .iter()
         .enumerate()
         .map(|(index, inst)| {
+            let instruction = &view_ir_output.ir_block.instructions[index];
             let comment = &view_ir_output.ir_block.comments[index];
+            // Parse the formatted instruction into its two components so we can color it
+            let (inst_name, inst_args) = if let Some(split_offset) = inst.find(' ') {
+                let (inst_name, inst_args) = inst.split_at(split_offset);
+                (
+                    inst_name,
+                    inst_args
+                        .split_at(inst_args.find(|ch| ch != ' ').unwrap_or(0))
+                        .1,
+                )
+            } else {
+                (inst.as_str(), "")
+            };
             Line::from_iter([
                 Span::styled(format!("{index:4}: "), Style::new().dim()),
-                Span::raw(format!("{inst:40}")),
+                Span::raw(format!("{inst_name:22} ")),
+                // Make it stand out if it's jumpable
+                Span::styled(format!("{inst_args:17}"), instruction_style(instruction)),
                 if !comment.is_empty() {
                     Span::styled(format!(" # {comment}"), Style::new().dim().italic())
                 } else {
@@ -162,7 +334,7 @@ fn ui(frame: &mut Frame, state: &mut State) {
 }
 
 fn statusbar_ui(frame: &mut Frame, state: &mut State, area: Rect) {
-    let key_style = Style::new().blue().bold();
+    let key_style = Style::new().light_blue().bold();
     let desc_style = Style::new().italic();
 
     if let Some(error) = &state.error {
@@ -194,10 +366,10 @@ fn statusbar_ui(frame: &mut Frame, state: &mut State, area: Rect) {
                 Span::styled(" inspect  ", desc_style),
                 Span::styled("<g>", key_style),
                 Span::styled(" goto  ", desc_style),
-                Span::styled("<up/k>", key_style),
-                Span::styled(" previous  ", desc_style),
-                Span::styled("<down/j>", key_style),
-                Span::styled(" next  ", desc_style),
+                Span::styled("<↑/↓/k/j>", key_style),
+                Span::styled(" navigate  ", desc_style),
+                Span::styled("<[/]>", key_style),
+                Span::styled(" jump back/fwd  ", desc_style),
             ]),
             area,
         );
@@ -212,17 +384,21 @@ fn instructions_ui(frame: &mut Frame, state: &mut State, area: Rect) {
             .block(Block::bordered().title(Span::styled("IR instructions", Style::new().bold())))
             .highlight_style(Style::new().reversed()),
         area,
-        &mut state.inst_list_state,
+        state.list_state_mut(),
     );
 }
 
 fn source_code_ui(frame: &mut Frame, state: &mut State, area: Rect) {
+    let Some(block) = state.blocks.last() else {
+        return;
+    };
+
     // Highlight the span of the selected instruction
-    let block_span = state.view_ir_output.span;
-    let highlighted_span = state
-        .inst_list_state
+    let block_span = block.view_ir.span;
+    let highlighted_span = block
+        .list_state
         .selected()
-        .and_then(|index| state.view_ir_output.ir_block.spans.get(index).cloned())
+        .and_then(|index| block.view_ir.ir_block.spans.get(index).cloned())
         .unwrap_or(nu_protocol::Span::unknown());
 
     let source_code_title = Span::styled("Source code", Style::new().bold());
@@ -232,7 +408,7 @@ fn source_code_ui(frame: &mut Frame, state: &mut State, area: Rect) {
     if highlighted_span.start >= block_span.start && highlighted_span.end <= block_span.end {
         let start = highlighted_span.start - block_span.start;
         let end = highlighted_span.end - block_span.start;
-        let (initial, next) = state.block_contents.split_at(start);
+        let (initial, next) = block.source.split_at(start);
         let (highlighted, final_part) = next.split_at(end - start);
 
         // First, push the initial lines that have no style
@@ -250,7 +426,7 @@ fn source_code_ui(frame: &mut Frame, state: &mut State, area: Rect) {
         }
 
         // Now, the highlighted part
-        let style = Style::new().blue().reversed().bold();
+        let style = Style::new().light_blue().reversed().bold();
         let styled_line_count = highlighted.lines().count();
         let mut lines = highlighted.lines();
         if let Some(highlighted_part_of_last_initial_line) = lines.next() {
@@ -273,7 +449,7 @@ fn source_code_ui(frame: &mut Frame, state: &mut State, area: Rect) {
         // Finally, push the final lines that have no style.
         text.extend(final_part.lines().skip(1).map(Line::raw));
     } else {
-        text = Text::raw(state.block_contents);
+        text = Text::raw(&block.source);
     }
 
     frame.render_widget(
@@ -315,9 +491,10 @@ fn inspector_ui(frame: &mut Frame, state: &mut State) {
     )
     .split(block_inner);
 
-    if let Some(index) = state.inst_list_state.selected() {
-        let formatted_instruction = &state.view_ir_output.formatted_instructions[index];
-        let instruction = &state.view_ir_output.ir_block.instructions[index];
+    if let Some(index) = state.list_state().selected() {
+        let block = state.current_block();
+        let formatted_instruction = &block.view_ir.formatted_instructions[index];
+        let instruction = &block.view_ir.ir_block.instructions[index];
         let debug_instruction = format!("{:#?}", instruction);
 
         frame.render_widget(
@@ -333,7 +510,7 @@ fn inspector_ui(frame: &mut Frame, state: &mut State) {
 
         frame.render_widget(
             Paragraph::new(Line::from_iter([
-                Span::styled("<esc>", Style::new().blue().bold()),
+                Span::styled("<esc>", Style::new().light_blue().bold()),
                 Span::styled(" close inspector", Style::new().italic()),
             ]))
             .block(Block::new().borders(Borders::TOP)),
