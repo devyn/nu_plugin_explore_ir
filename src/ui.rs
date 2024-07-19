@@ -377,6 +377,11 @@ fn statusbar_ui(frame: &mut Frame, state: &mut State, area: Rect) {
 }
 
 fn instructions_ui(frame: &mut Frame, state: &mut State, area: Rect) {
+    let inner_area = area.inner(Margin {
+        horizontal: 0,
+        vertical: 1,
+    });
+
     frame.render_stateful_widget(
         state
             .inst_list
@@ -385,6 +390,13 @@ fn instructions_ui(frame: &mut Frame, state: &mut State, area: Rect) {
             .highlight_style(Style::new().reversed()),
         area,
         state.list_state_mut(),
+    );
+
+    frame.render_stateful_widget(
+        Scrollbar::new(ScrollbarOrientation::VerticalRight),
+        inner_area,
+        &mut ScrollbarState::new(state.inst_list.len())
+            .position(state.list_state().selected().unwrap_or(0)),
     );
 }
 
@@ -416,6 +428,8 @@ fn source_code_ui(frame: &mut Frame, state: &mut State, area: Rect) {
         .unwrap_or(nu_protocol::Span::unknown());
 
     let mut text = Text::default();
+    let mut focus_start = 0;
+    let mut focus_end = 0;
 
     if highlighted_span.start >= block_span.start && highlighted_span.end <= block_span.end {
         let start = highlighted_span.start - block_span.start;
@@ -436,6 +450,9 @@ fn source_code_ui(frame: &mut Frame, state: &mut State, area: Rect) {
         if let Some(unstyled_part_of_last_initial_line) = initial.lines().last() {
             text.push_line(unstyled_part_of_last_initial_line);
         }
+
+        // Focus the beginning of the highlight
+        focus_start = text.lines.len().saturating_sub(1) as i64;
 
         // Now, the highlighted part
         let style = Style::new().light_blue().reversed().bold();
@@ -458,15 +475,39 @@ fn source_code_ui(frame: &mut Frame, state: &mut State, area: Rect) {
             text.push_span(unstyled_part_of_first_final_line);
         }
 
+        // Focus the end of the highlight
+        focus_end = text.lines.len() as i64;
+
         // Finally, push the final lines that have no style.
         text.extend(final_part.lines().skip(1).map(Line::raw));
     } else {
         text = Text::raw(&block.source);
     }
 
+    // Calculate a scroll that will keep the focus near the middle
+    let total_y = text.lines.len() as i64;
+    let focus_y = focus_end - focus_start;
+    let inner_area = area.inner(Margin {
+        horizontal: 0,
+        vertical: 1,
+    });
+    let inner_height = inner_area.height as i64;
+    let middle = focus_start + focus_y / 2;
+    let middle_top = middle - inner_height / 2;
+    let limit = (total_y - inner_height / 2).max(0);
+    let scroll = u16::try_from(middle_top.clamp(0, limit)).unwrap_or(u16::MAX);
+
     frame.render_widget(
-        Paragraph::new(text).block(Block::bordered().title(source_code_title)),
+        Paragraph::new(text)
+            .scroll((scroll, 0))
+            .block(Block::bordered().title(source_code_title)),
         area,
+    );
+
+    frame.render_stateful_widget(
+        Scrollbar::new(ScrollbarOrientation::VerticalRight),
+        inner_area,
+        &mut ScrollbarState::new(total_y as usize).position(middle.max(0) as usize),
     );
 }
 
