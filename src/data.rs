@@ -7,7 +7,7 @@ use serde::Deserialize;
 #[allow(unused)]
 pub struct ViewIrOutput {
     pub block_id: BlockId,
-    pub span: Span,
+    pub span: Option<Span>,
     pub ir_block: IrBlock,
     pub formatted_instructions: Vec<String>,
 }
@@ -58,7 +58,11 @@ pub fn get(
 ) -> Result<BlockState, LabeledError> {
     let view_ir = view_ir(engine, target, is_decl_id, head)?;
 
-    let source = String::from_utf8_lossy(&engine.get_span_contents(view_ir.span)?).into_owned();
+    let source = if let Some(span) = view_ir.span {
+        String::from_utf8_lossy(&engine.get_span_contents(span)?).into_owned()
+    } else {
+        String::new()
+    };
 
     Ok(BlockState {
         view_ir,

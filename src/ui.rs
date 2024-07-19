@@ -389,19 +389,31 @@ fn instructions_ui(frame: &mut Frame, state: &mut State, area: Rect) {
 }
 
 fn source_code_ui(frame: &mut Frame, state: &mut State, area: Rect) {
+    let source_code_title = Span::styled("Source code", Style::new().bold());
+
+    let fail = |frame: &mut Frame| {
+        frame.render_widget(
+            Paragraph::new(Span::styled("(not available)", Style::new().dim().italic()))
+                .block(Block::bordered().title(source_code_title.clone())),
+            area,
+        );
+    };
+
     let Some(block) = state.blocks.last() else {
-        return;
+        return fail(frame);
+    };
+
+    let Some(block_span) = block.view_ir.span else {
+        return fail(frame);
     };
 
     // Highlight the span of the selected instruction
-    let block_span = block.view_ir.span;
+
     let highlighted_span = block
         .list_state
         .selected()
         .and_then(|index| block.view_ir.ir_block.spans.get(index).cloned())
         .unwrap_or(nu_protocol::Span::unknown());
-
-    let source_code_title = Span::styled("Source code", Style::new().bold());
 
     let mut text = Text::default();
 
