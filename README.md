@@ -1,19 +1,15 @@
 # nu_plugin_explore_ir
 
-> [!IMPORTANT]
-> This is a work in progress. You need [my IR branch](https://github.com/nushell/nushell/tree/ir) of Nushell for this to work.  
-> The IR is under development and will likely change substantially before it's merged.
-
-This is a fancy viewer for `view ir --json`. Example:
+This is a fancy viewer for internal representation (IR) code in Nushell. Example:
 
 ```nushell
-view ir --json {
+explore ir {
   if ($env.HELLO | is-not-empty) {
     "Hello, " ++ $env.HELLO ++ "!"
   } else {
     "Goodbye, " ++ (random uuid) ++ "!"
   }
-} | explore ir
+}
 ```
 
 ![An example of what the UI looks like for the above code](doc/example.png)
@@ -27,4 +23,9 @@ Key bindings:
 | **g**          | Go to a specific instruction by index.                          |
 | **↑** or **k** | Go to the previous instruction.                                 |
 | **↓** or **j** | Go to the next instruction.                                     |
+| **[**          | Go back after jumping to an instruction's target.               |
+| **]**          | Jump into an instruction's target (branch or call decl / block) |
 | **ESC**        | Close a dialog box or prompt.                                   |
+
+With the **[** and **]** keys it is easy to navigate through IR code and jump into blocks referenced by literals, (custom) declarations in `call` instructions, or branch targets.
+
