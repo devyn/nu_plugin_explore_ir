@@ -1,5 +1,10 @@
 # nu_plugin_explore_ir
 
+```nushell
+cargo install nu_plugin_explore_ir
+plugin add ~/.cargo/bin/nu_plugin_explore_ir
+```
+
 This is a fancy viewer for internal representation (IR) code in Nushell. Example:
 
 ```nushell
