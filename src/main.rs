@@ -48,11 +48,11 @@ impl SimplePluginCommand for ExploreIr {
             .category(Category::Viewers)
     }
 
-    fn usage(&self) -> &str {
+    fn description(&self) -> &str {
         "Explore the IR of a block or definition."
     }
 
-    fn extra_usage(&self) -> &str {
+    fn extra_description(&self) -> &str {
         "Accepts valid arguments for `view ir`. For more information, see `view ir --help`."
     }
 
