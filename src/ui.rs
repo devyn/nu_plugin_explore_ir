@@ -125,7 +125,7 @@ fn go_forward(state: &mut State) {
                 let new_block = data::get(
                     &state.engine,
                     Value::int(
-                        i64::try_from(*decl_id).map_err(|err| err.to_string())?,
+                        i64::try_from(decl_id.get()).map_err(|err| err.to_string())?,
                         state.head,
                     ),
                     true,
@@ -147,7 +147,7 @@ fn go_forward(state: &mut State) {
                 let new_block = data::get(
                     &state.engine,
                     Value::int(
-                        i64::try_from(*block_id).map_err(|err| err.to_string())?,
+                        i64::try_from(block_id.get()).map_err(|err| err.to_string())?,
                         state.head,
                     ),
                     false,
